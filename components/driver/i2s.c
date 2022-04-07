@@ -449,7 +449,14 @@ static void IRAM_ATTR i2s_intr_handler_default(void *arg)
             // of previous data from tx descriptor on I2S line.
             if (p_i2s->tx_desc_auto_clear == true) {
                 memset((void *) dummy, 0, p_i2s->tx->buf_size);
+            } else if (p_i2s->i2s_queue) {
+                i2s_event.type = I2S_EVENT_TX_Q_OVF;
+                if (xQueueIsQueueFullFromISR(p_i2s->i2s_queue)) {
+                    xQueueReceiveFromISR(p_i2s->i2s_queue, &dummy, &high_priority_task_awoken);
+                }
+                xQueueSendFromISR(p_i2s->i2s_queue, (void * )&i2s_event, &high_priority_task_awoken);
             }
+
         }
         xQueueSendFromISR(p_i2s->tx->queue, &(((lldesc_t *)finish_desc)->buf), &high_priority_task_awoken);
         if (p_i2s->i2s_queue) {
@@ -466,6 +473,14 @@ static void IRAM_ATTR i2s_intr_handler_default(void *arg)
         i2s_hal_get_in_eof_des_addr(&(p_i2s->hal), &finish_desc);
         if (xQueueIsQueueFullFromISR(p_i2s->rx->queue)) {
             xQueueReceiveFromISR(p_i2s->rx->queue, &dummy, &high_priority_task_awoken);
+
+            if (p_i2s->i2s_queue) {
+                i2s_event.type = I2S_EVENT_RX_Q_OVF;
+                if (xQueueIsQueueFullFromISR(p_i2s->i2s_queue)) {
+                    xQueueReceiveFromISR(p_i2s->i2s_queue, &dummy, &high_priority_task_awoken);
+                }
+                xQueueSendFromISR(p_i2s->i2s_queue, (void * )&i2s_event, &high_priority_task_awoken);
+            }
         }
         xQueueSendFromISR(p_i2s->rx->queue, &(((lldesc_t *)finish_desc)->buf), &high_priority_task_awoken);
         if (p_i2s->i2s_queue) {
