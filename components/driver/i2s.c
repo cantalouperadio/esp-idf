@@ -203,13 +203,14 @@ static int _i2s_adc_channel = -1;
  * @param   singal_idx    GPIO singnal ID, refer to 'gpio_sig_map.h'
  * @param   out_inv       Output invert enable
  * @param   oen_inv       Output eanble control invert enable
+ * @param   make_in_out   Configure GPIO for input as well
  */
-static void gpio_matrix_out_check_and_set(gpio_num_t gpio, uint32_t signal_idx, bool out_inv, bool oen_inv)
+static void gpio_matrix_out_check_and_set(gpio_num_t gpio, uint32_t signal_idx, bool out_inv, bool oen_inv, bool make_in_out)
 {
     //if pin = -1, do not need to configure
     if (gpio != -1) {
         gpio_hal_iomux_func_sel(GPIO_PIN_MUX_REG[gpio], PIN_FUNC_GPIO);
-        gpio_set_direction(gpio, GPIO_MODE_OUTPUT);
+        gpio_set_direction(gpio, make_in_out ? GPIO_MODE_INPUT_OUTPUT : GPIO_MODE_OUTPUT);
         esp_rom_gpio_connect_out_signal(gpio, signal_idx, out_inv, oen_inv);
     }
 }
@@ -221,13 +222,14 @@ static void gpio_matrix_out_check_and_set(gpio_num_t gpio, uint32_t signal_idx, 
  * @param   singal_idx    GPIO singnal ID, refer to 'gpio_sig_map.h'
  * @param   out_inv       Output invert enable
  * @param   oen_inv       Output eanble control invert enable
+ * @param   set_dir       Configure the GPIO direction
  */
-static void gpio_matrix_in_check_and_set(gpio_num_t gpio, uint32_t signal_idx, bool inv)
+static void gpio_matrix_in_check_and_set(gpio_num_t gpio, uint32_t signal_idx, bool inv, bool set_dir)
 {
     if (gpio != -1) {
         gpio_hal_iomux_func_sel(GPIO_PIN_MUX_REG[gpio], PIN_FUNC_GPIO);
         /* Set direction, for some GPIOs, the input function are not enabled as default */
-        gpio_set_direction(gpio, GPIO_MODE_INPUT);
+        if (set_dir) gpio_set_direction(gpio, GPIO_MODE_INPUT);
         esp_rom_gpio_connect_in_signal(gpio, signal_idx, inv);
     }
 }
@@ -263,7 +265,7 @@ static esp_err_t i2s_check_set_mclk(i2s_port_t i2s_num, gpio_num_t gpio_num)
     }
 #else
     ESP_RETURN_ON_FALSE(GPIO_IS_VALID_GPIO(gpio_num), ESP_ERR_INVALID_ARG, TAG, "mck_io_num invalid");
-    gpio_matrix_out_check_and_set(gpio_num, i2s_periph_signal[i2s_num].mck_out_sig, 0, 0);
+    gpio_matrix_out_check_and_set(gpio_num, i2s_periph_signal[i2s_num].mck_out_sig, 0, 0, false);
 #endif
     ESP_LOGI(TAG, "I2S%d, MCLK output by GPIO%d", i2s_num, gpio_num);
     return ESP_OK;
@@ -299,32 +301,35 @@ esp_err_t i2s_set_pin(i2s_port_t i2s_num, const i2s_pin_config_t *pin)
                         ESP_ERR_INVALID_ARG, TAG, "data_in_num invalid");
 
     if (p_i2s[i2s_num]->hal_cfg.mode & I2S_MODE_SLAVE) {
+        /* When peripherals are linked, only configure GPIO directions during master setup */
+        bool set_dir = !(p_i2s[i2s_num]->hal_cfg.mode & I2S_MODE_LINKED);
         /* For "tx + rx + slave" or "rx + slave" mode, we should select RX signal index for ws and bck */
         if (p_i2s[i2s_num]->hal_cfg.mode & I2S_MODE_RX) {
-            gpio_matrix_in_check_and_set(pin->ws_io_num, i2s_periph_signal[i2s_num].s_rx_ws_sig, 0);
-            gpio_matrix_in_check_and_set(pin->bck_io_num, i2s_periph_signal[i2s_num].s_rx_bck_sig, 0);
+            gpio_matrix_in_check_and_set(pin->ws_io_num, i2s_periph_signal[i2s_num].s_rx_ws_sig, 0, set_dir);
+            gpio_matrix_in_check_and_set(pin->bck_io_num, i2s_periph_signal[i2s_num].s_rx_bck_sig, 0, set_dir);
             /* For "tx + slave" mode, we should select TX signal index for ws and bck */
         } else {
-            gpio_matrix_in_check_and_set(pin->ws_io_num, i2s_periph_signal[i2s_num].s_tx_ws_sig, 0);
-            gpio_matrix_in_check_and_set(pin->bck_io_num, i2s_periph_signal[i2s_num].s_tx_bck_sig, 0);
+            gpio_matrix_in_check_and_set(pin->ws_io_num, i2s_periph_signal[i2s_num].s_tx_ws_sig, 0, set_dir);
+            gpio_matrix_in_check_and_set(pin->bck_io_num, i2s_periph_signal[i2s_num].s_tx_bck_sig, 0, set_dir);
         }
     } else {
         /* mclk only available in master mode */
         ESP_RETURN_ON_ERROR(i2s_check_set_mclk(i2s_num, pin->mck_io_num), TAG, "mclk config failed");
+        bool make_in_out = p_i2s[i2s_num]->hal_cfg.mode & I2S_MODE_LINKED;
         /* For "tx + rx + master" or "tx + master" mode, we should select TX signal index for ws and bck */
         if (p_i2s[i2s_num]->hal_cfg.mode & I2S_MODE_TX) {
-            gpio_matrix_out_check_and_set(pin->ws_io_num, i2s_periph_signal[i2s_num].m_tx_ws_sig, 0, 0);
-            gpio_matrix_out_check_and_set(pin->bck_io_num, i2s_periph_signal[i2s_num].m_tx_bck_sig, 0, 0);
+            gpio_matrix_out_check_and_set(pin->ws_io_num, i2s_periph_signal[i2s_num].m_tx_ws_sig, 0, 0, make_in_out);
+            gpio_matrix_out_check_and_set(pin->bck_io_num, i2s_periph_signal[i2s_num].m_tx_bck_sig, 0, 0, make_in_out);
             /* For "rx + master" mode, we should select RX signal index for ws and bck */
         } else {
-            gpio_matrix_out_check_and_set(pin->ws_io_num, i2s_periph_signal[i2s_num].m_rx_ws_sig, 0, 0);
-            gpio_matrix_out_check_and_set(pin->bck_io_num, i2s_periph_signal[i2s_num].m_rx_bck_sig, 0, 0);
+            gpio_matrix_out_check_and_set(pin->ws_io_num, i2s_periph_signal[i2s_num].m_rx_ws_sig, 0, 0, make_in_out);
+            gpio_matrix_out_check_and_set(pin->bck_io_num, i2s_periph_signal[i2s_num].m_rx_bck_sig, 0, 0, make_in_out);
         }
     }
 
     /* Set data input/ouput GPIO */
-    gpio_matrix_out_check_and_set(pin->data_out_num, i2s_periph_signal[i2s_num].data_out_sig, 0, 0);
-    gpio_matrix_in_check_and_set(pin->data_in_num, i2s_periph_signal[i2s_num].data_in_sig, 0);
+    gpio_matrix_out_check_and_set(pin->data_out_num, i2s_periph_signal[i2s_num].data_out_sig, 0, 0, false);
+    gpio_matrix_in_check_and_set(pin->data_in_num, i2s_periph_signal[i2s_num].data_in_sig, 0, true);
     return ESP_OK;
 }
 

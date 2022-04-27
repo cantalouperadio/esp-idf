@@ -132,6 +132,7 @@ typedef enum {
 #endif // SOC_I2S_SUPPORTS_ADC
     // PDM functions are only supported on I2S0 (all chips).
     I2S_MODE_PDM          = (0x1 << 6),       /*!< I2S PDM mode*/
+    I2S_MODE_LINKED       = (0x1 << 7),       /*!< Link both I2S peripherals together, one master, one slave*/
 } i2s_mode_t;
 
 /**
