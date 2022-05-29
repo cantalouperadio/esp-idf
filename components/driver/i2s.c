@@ -430,6 +430,7 @@ static void IRAM_ATTR i2s_intr_handler_default(void *arg)
     }
 
     i2s_event_t i2s_event;
+    i2s_event.type = I2S_EVENT_MAX;
     int dummy;
     portBASE_TYPE high_priority_task_awoken = 0;
     uint32_t  finish_desc = 0;
@@ -456,16 +457,14 @@ static void IRAM_ATTR i2s_intr_handler_default(void *arg)
                 memset((void *) dummy, 0, p_i2s->tx->buf_size);
             } else if (p_i2s->i2s_queue) {
                 i2s_event.type = I2S_EVENT_TX_Q_OVF;
-                if (xQueueIsQueueFullFromISR(p_i2s->i2s_queue)) {
-                    xQueueReceiveFromISR(p_i2s->i2s_queue, &dummy, &high_priority_task_awoken);
-                }
-                xQueueSendFromISR(p_i2s->i2s_queue, (void * )&i2s_event, &high_priority_task_awoken);
             }
 
         }
         xQueueSendFromISR(p_i2s->tx->queue, &(((lldesc_t *)finish_desc)->buf), &high_priority_task_awoken);
         if (p_i2s->i2s_queue) {
-            i2s_event.type = I2S_EVENT_TX_DONE;
+            if (i2s_event.type != I2S_EVENT_TX_Q_OVF) {
+                i2s_event.type = I2S_EVENT_TX_DONE;
+            }
             if (xQueueIsQueueFullFromISR(p_i2s->i2s_queue)) {
                 xQueueReceiveFromISR(p_i2s->i2s_queue, &dummy, &high_priority_task_awoken);
             }
@@ -481,15 +480,13 @@ static void IRAM_ATTR i2s_intr_handler_default(void *arg)
 
             if (p_i2s->i2s_queue) {
                 i2s_event.type = I2S_EVENT_RX_Q_OVF;
-                if (xQueueIsQueueFullFromISR(p_i2s->i2s_queue)) {
-                    xQueueReceiveFromISR(p_i2s->i2s_queue, &dummy, &high_priority_task_awoken);
-                }
-                xQueueSendFromISR(p_i2s->i2s_queue, (void * )&i2s_event, &high_priority_task_awoken);
             }
         }
         xQueueSendFromISR(p_i2s->rx->queue, &(((lldesc_t *)finish_desc)->buf), &high_priority_task_awoken);
         if (p_i2s->i2s_queue) {
-            i2s_event.type = I2S_EVENT_RX_DONE;
+            if (i2s_event.type != I2S_EVENT_RX_Q_OVF) {
+                i2s_event.type = I2S_EVENT_RX_DONE;
+            }
             if (p_i2s->i2s_queue && xQueueIsQueueFullFromISR(p_i2s->i2s_queue)) {
                 xQueueReceiveFromISR(p_i2s->i2s_queue, &dummy, &high_priority_task_awoken);
             }
